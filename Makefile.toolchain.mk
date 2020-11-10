@@ -1,6 +1,10 @@
 include config.mk
 
 MAKE_J ?= -j 8
+
+frida_toolchain_version := 20201106
+frida_bootstrap_version := 20201028
+
 repo_base_url = "https://github.com/frida"
 repo_suffix = ".git"
 
@@ -9,9 +13,14 @@ autoconf_version := 2.69
 automake_version := 1.16.2
 automake_api_version := 1.16
 libtool_version := 2.4.6
-gettext_version := 0.20.1
+gettext_version := 0.21
+zlib_version := 91920caec2160ffd919fd48dc4e7a0f6c3fb36d2
+libffi_version := b9b1d9cbeb5096c4998a19fa7d40b6a8c91d3c1b
+glib_version := f4d1ddd8d5783029c7c2ec7e921989e6b68f4cbe
+pkg_config_version := b7fb5edc1f1a4fb17cd5cb94f4cf21912184da43
 flex_version := 2.6.4
-bison_version := 3.5.4
+bison_version := 3.7.3
+vala_version := 5067d99e7b9b8ab1c9393f70596fc5bd4f8b46a2
 
 gnu_mirror := saimei.ftp.acc.umu.se/mirror/gnu.org/gnu
 
@@ -125,7 +134,7 @@ build/ft-tmp-%/.package-stamp: \
 			--exclude lib/glib-2.0 \
 			--exclude lib/gio \
 			--exclude lib/pkgconfig \
-			--exclude "lib/vala-0.50/*.a" \
+			--exclude "lib/vala-*/*.a" \
 			--exclude share/bash-completion \
 			--exclude share/devhelp \
 			--exclude share/doc \
@@ -191,10 +200,11 @@ define make-git-meson-module-rules
 build/.$1-stamp:
 	$(RM) -r $1
 	git clone --recurse-submodules $(repo_base_url)/$1$(repo_suffix)
+	cd $1 && git checkout -b $(frida_toolchain_version) $2
 	@mkdir -p $$(@D)
 	@touch $$@
 
-build/ft-tmp-%/$1/build.ninja: build/ft-env-%.rc build/.$1-stamp $3 releng/meson/meson.py
+build/ft-tmp-%/$1/build.ninja: build/ft-env-%.rc build/.$1-stamp $4 releng/meson/meson.py
 	$(RM) -r $$(@D)
 	(. build/ft-meson-env-$$*.rc \
 		&& . build/ft-config-$$*.site \
@@ -204,11 +214,11 @@ build/ft-tmp-%/$1/build.ninja: build/ft-env-%.rc build/.$1-stamp $3 releng/meson
 			--libdir $$$$frida_prefix/lib \
 			--default-library static \
 			$$(FRIDA_MESONFLAGS_BOTTLE) \
-			$4 \
+			$5 \
 			$$(@D) \
 			$1)
 
-$2: build/ft-env-%.rc build/ft-tmp-%/$1/build.ninja
+$3: build/ft-env-%.rc build/ft-tmp-%/$1/build.ninja
 	(. $$< \
 		&& PATH=$$(shell pwd)/build/ft-$(build_platform_arch)/bin:$$$$PATH $(NINJA) -C build/ft-tmp-$$*/$1 install)
 	@touch $$@
@@ -216,7 +226,7 @@ endef
 
 $(eval $(call make-tarball-module-rules,m4,https://$(gnu_mirror)/m4/m4-$(m4_version).tar.gz,build/ft-%/bin/m4,,m4-vasnprintf-apple-fix.patch m4-ftbfs-fix.patch))
 
-$(eval $(call make-tarball-module-rules,autoconf,https://$(gnu_mirror)/autoconf/autoconf-$(autoconf_version).tar.gz,build/ft-%/bin/autoconf,build/ft-%/bin/m4))
+$(eval $(call make-tarball-module-rules,autoconf,https://$(gnu_mirror)/autoconf/autoconf-$(autoconf_version).tar.gz,build/ft-%/bin/autoconf,build/ft-%/bin/m4,autoconf-uclibc.patch))
 
 $(eval $(call make-tarball-module-rules,automake,https://$(gnu_mirror)/automake/automake-$(automake_version).tar.gz,build/ft-%/bin/automake,build/ft-%/bin/autoconf))
 
@@ -249,19 +259,19 @@ build/ft-%/bin/libtool: build/ft-env-%.rc build/ft-tmp-%/libtool/Makefile
 
 $(eval $(call make-tarball-module-rules,gettext,https://$(gnu_mirror)/gettext/gettext-$(gettext_version).tar.gz,build/ft-%/bin/autopoint,build/ft-%/bin/libtool,gettext-static-only.patch))
 
-$(eval $(call make-git-meson-module-rules,zlib,build/ft-%/lib/pkgconfig/zlib.pc,))
+$(eval $(call make-git-meson-module-rules,zlib,$(zlib_version),build/ft-%/lib/pkgconfig/zlib.pc,))
 
-$(eval $(call make-git-meson-module-rules,libffi,build/ft-%/lib/pkgconfig/libffi.pc,,))
+$(eval $(call make-git-meson-module-rules,libffi,$(libffi_version),build/ft-%/lib/pkgconfig/libffi.pc,,))
 
-$(eval $(call make-git-meson-module-rules,glib,build/ft-%/bin/glib-genmarshal,build/ft-%/lib/pkgconfig/zlib.pc build/ft-%/lib/pkgconfig/libffi.pc,$(glib_iconv_option) -Dselinux=disabled -Dxattr=false -Dlibmount=disabled -Dinternal_pcre=true -Dtests=false))
+$(eval $(call make-git-meson-module-rules,glib,$(glib_version),build/ft-%/bin/glib-genmarshal,build/ft-%/lib/pkgconfig/zlib.pc build/ft-%/lib/pkgconfig/libffi.pc,$(glib_iconv_option) -Dselinux=disabled -Dxattr=false -Dlibmount=disabled -Dinternal_pcre=true -Dtests=false))
 
-$(eval $(call make-git-meson-module-rules,pkg-config,build/ft-%/bin/pkg-config,build/ft-%/bin/glib-genmarshal,))
+$(eval $(call make-git-meson-module-rules,pkg-config,$(pkg_config_version),build/ft-%/bin/pkg-config,build/ft-%/bin/glib-genmarshal,))
 
 $(eval $(call make-tarball-module-rules,flex,https://github.com/westes/flex/releases/download/v$(flex_version)/flex-$(flex_version).tar.gz,build/ft-%/bin/flex,build/ft-$(build_platform_arch)/bin/m4,flex-modern-glibc.patch))
 
 $(eval $(call make-tarball-module-rules,bison,https://$(gnu_mirror)/bison/bison-$(bison_version).tar.gz,build/ft-%/bin/bison,build/ft-$(build_platform_arch)/bin/m4))
 
-$(eval $(call make-git-meson-module-rules,vala,build/ft-%/bin/valac,build/ft-%/bin/glib-genmarshal build/ft-$(build_platform_arch)/bin/flex build/ft-$(build_platform_arch)/bin/bison,))
+$(eval $(call make-git-meson-module-rules,vala,$(vala_version),build/ft-%/bin/valac,build/ft-%/bin/glib-genmarshal build/ft-$(build_platform_arch)/bin/flex build/ft-$(build_platform_arch)/bin/bison,))
 
 
 build/ft-env-%.rc: build/ft-executable.symbols build/ft-executable.version
@@ -272,6 +282,8 @@ build/ft-env-%.rc: build/ft-executable.symbols build/ft-executable.version
 		FRIDA_ASAN=$(FRIDA_ASAN) \
 		FRIDA_ENV_NAME=ft \
 		FRIDA_ENV_SDK=none \
+		FRIDA_TOOLCHAIN_VERSION=$(frida_bootstrap_version) \
+		FRIDA_SDK_VERSION=$(frida_bootstrap_version) \
 		./releng/setup-env.sh
 
 build/ft-executable.symbols:
